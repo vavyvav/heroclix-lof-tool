@@ -738,6 +738,7 @@ function HeroClixLoFTool() {
   const [cellSize, setCellSize] = useState(() => computeCellSize(GRID_COLS));
   const parseRef = useRef(null);
   const touchPaintingRef = useRef(false);
+  const lastTouchCellRef = useRef(null); // tracks last cell touched, used for LoF on touchEnd
   const gridRef = useRef(null);
 
   // Recompute cell size on resize
@@ -919,21 +920,34 @@ function HeroClixLoFTool() {
   }, [cellSize, LABEL_SIZE]);
 
   const handleTouchStart = useCallback((e) => {
-    if (tool === "wall" || tool === "eraseWall") {
-      // Don't prevent default for wall tool — let it fall through to individual cell handlers
-      return;
-    }
-    // Prevent scrolling while painting
+    if (tool === "wall" || tool === "eraseWall") return;
+
     e.preventDefault();
     const touch = e.touches[0];
     const cell = touchToCell(touch);
     if (!cell) return;
+
+    // For LoF: just record where the finger landed — commit on touchEnd
+    if (tool === "lof") {
+      lastTouchCellRef.current = cell;
+      return;
+    }
+
+    // For paint tools: start painting immediately on touchStart
     touchPaintingRef.current = true;
     setIsPainting(true);
     handleCellAction(cell.row, cell.col, true);
   }, [tool, touchToCell, handleCellAction]);
 
   const handleTouchMove = useCallback((e) => {
+    if (tool === "lof") {
+      // Track the moving finger so touchEnd uses the final resting position
+      e.preventDefault();
+      const touch = e.touches[0];
+      const cell = touchToCell(touch);
+      if (cell) lastTouchCellRef.current = cell;
+      return;
+    }
     if (!touchPaintingRef.current) return;
     if (tool === "terrain" || tool === "clearTerrain" || tool === "erase" || tool === "indoor") {
       e.preventDefault();
@@ -945,9 +959,16 @@ function HeroClixLoFTool() {
   }, [tool, touchToCell, handleCellAction]);
 
   const handleTouchEnd = useCallback((e) => {
+    // For LoF: commit the action using the last tracked cell on finger lift
+    if (tool === "lof") {
+      const cell = lastTouchCellRef.current;
+      lastTouchCellRef.current = null;
+      if (cell) handleCellAction(cell.row, cell.col, true);
+      return;
+    }
     touchPaintingRef.current = false;
     setIsPainting(false);
-  }, []);
+  }, [tool, handleCellAction]);
 
   const lofLineSquares = lofResult ? new Set(lofResult.squares.map(s=>s.key)) : new Set();
   const resultColor = lofResult
